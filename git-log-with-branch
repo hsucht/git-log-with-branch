@@ -4,7 +4,7 @@ use warnings;
 use 5.018;
 
 use constant BRANCH_PATTERN => '[\w\-]+';
-use constant REPOS_PATTERN => 'github.com:\w+\/\w+';
+use constant REPOS_PATTERN => '(https:\/\/github.com\/|github.com:)\w+\/\w+';
 
 my $num = 80;
 
