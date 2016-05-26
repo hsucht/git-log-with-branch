@@ -137,8 +137,12 @@ sub calc_backward
                 my $mama = \$commits{$mamahash};
                 if (defined $$papa->{branch} and $$me->{branch} eq $$papa->{branch}) {
                     $$mama->{branch} = $$me->{merge}{from} if (!defined $$mama->{branch});
+                } elsif (defined $$papa->{branch} and $$me->{merge}{from} eq $$papa->{branch}) {
+                    $$mama->{branch} = $$me->{branch} if (!defined $$mama->{branch});
                 } elsif (defined $$mama->{branch} and $$me->{branch} eq $$mama->{branch}) {
                     $$papa->{branch} = $$me->{merge}{from} if (!defined $$papa->{branch});
+                } elsif (defined $$mama->{branch} and $$me->{merge}{from} eq $$mama->{branch}) {
+                    $$papa->{branch} = $$me->{branch} if (!defined $$papa->{branch});
                 } elsif ($$me->{merge}{from} eq $$me->{merge}{to}) {
                     $$mama->{branch} = $$me->{merge}{from} if (!defined $$mama->{branch});
                     $$papa->{branch} = $$me->{merge}{from} if (!defined $$papa->{branch});
