@@ -128,7 +128,7 @@ sub calc_backward
         my $msg = join(' ', @parts);
         chomp $msg;
         my $me = \$commits{$hash};
-        if ($$me->{type} eq 'merge' and defined $$me->{branch}) {
+        if ($$me->{type} eq 'merge' and defined $$me->{branch} and defined $$me->{merge}{from} and defined $$me->{merge}{to}) {
             # determine parents branch
             my $papahash = $$me->{parents}[0];
             my $mamahash = $$me->{parents}[1];
