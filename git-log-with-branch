@@ -1,0 +1,246 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use 5.018;
+
+use constant BRANCH_PATTERN => '[\w\-]+';
+use constant REPOS_PATTERN => 'github.com:\w+\/\w+';
+
+my $num = 80;
+
+# params
+if (scalar(@ARGV) > 0) {
+    $num = $ARGV[0];
+}
+my $GIT_CMD_REV_LIST = "git rev-list --parents HEAD | head -$num";
+my $GIT_LOG = "git log --oneline --date-order -$num";
+my $GIT_LOG_GRAPH = "$GIT_LOG --color=always --graph";
+
+my $GIT_MERGE_MASTER_MSG = qr/^Merge branch '(${\(BRANCH_PATTERN)})'$/;
+my $GIT_MERGE_REMOTE_MASTER_MSG = qr/^Merge branch '(${\(BRANCH_PATTERN)})' of ${\(REPOS_PATTERN)}$/;
+my $GIT_MERGE_BRANCH_MSG = qr/^Merge branch '(${\(BRANCH_PATTERN)})' into (${\(BRANCH_PATTERN)})$/;
+my $GIT_MERGE_REMOTE_BRANCH_MSG = qr/^Merge branch '(${\(BRANCH_PATTERN)})' of ${\(REPOS_PATTERN)} into (${\(BRANCH_PATTERN)})$/;
+
+# globals
+my %git_branch_hashes;
+my %commits;
+
+# subs
+sub shorten {
+    my $s = shift;
+    return substr($s, 0, 7);
+}
+
+sub create_or_update_next
+{
+    my ($hash, $ref) = @_;
+    if (!defined $$ref->{next}) {
+        $$ref->{next} = [($hash)];
+    } else {
+        push $$ref->{next}, $hash;
+    }
+}
+
+sub get_node
+{
+    my %node;
+    my @hashes = @_;
+    $node{me} = shorten($hashes[0]);
+
+    # check if is any branch
+    if (defined $git_branch_hashes{$node{me}}) {
+        $node{branch} = $git_branch_hashes{$node{me}};
+    };
+
+    # commit message
+    my @msg_lines  = split(/\n/, `git cat-file -p $node{'me'}`);
+    my $commit_msg;
+    while (my $line = shift @msg_lines) {};
+    $commit_msg = shift @msg_lines;
+    $node{msg} = $commit_msg;
+
+    if (scalar(@hashes) == 3) { # merge commit
+        $node{type} = 'merge';
+        $node{parents} = [(shorten($hashes[1]), shorten($hashes[2]))];
+        $node{merge} = {};
+        if ($commit_msg =~ $GIT_MERGE_MASTER_MSG
+                or $commit_msg =~ $GIT_MERGE_REMOTE_MASTER_MSG)
+        {
+            $node{merge}{from} = $1;
+            $node{merge}{to} = 'master';
+            $node{branch} = 'master' if (!defined $node{branch});
+        } elsif ($commit_msg =~ $GIT_MERGE_BRANCH_MSG
+                or $commit_msg =~ $GIT_MERGE_REMOTE_BRANCH_MSG)
+        {
+            $node{merge}{from} = $1;
+            $node{merge}{to} = $2;
+            $node{branch} = $2 if not defined $node{branch};
+        }
+    } elsif (scalar(@hashes) == 2) { # normal commit
+        $node{type} = 'commit';
+        $node{parents} = [(shorten($hashes[1]))];
+    } elsif (scalar(@hashes) == 1) { # initial commit
+        $node{type} = 'initial';
+    }
+
+    return %node;
+}
+
+sub construct_tree_backward
+{
+    foreach (@_)
+    {
+        my @parts = split / /, $_;
+        my $hash = shift @parts;
+        my $me = \$commits{$hash};
+        if ($$me->{type} eq 'merge' and defined $$me->{branch}) {
+            # determine parents branch
+            my $papahash = $$me->{parents}[0];
+            my $mamahash = $$me->{parents}[1];
+            if (exists $commits{$papahash} and exists $commits{$mamahash}) {
+                my $papa = \$commits{$papahash};
+                my $mama = \$commits{$mamahash};
+
+                # prepare next link
+                if ($$papa->{type} eq 'commit') {
+                    create_or_update_next($hash, $papa);
+                }
+                if ($$mama->{type} eq 'commit') {
+                    create_or_update_next($hash, $mama);
+                }
+            }
+        } elsif ($$me->{type} eq 'commit') {
+            my $papahash = $$me->{parents}[0];
+            if (exists $commits{$papahash}) {
+                my $papa = \$commits{$papahash};
+                create_or_update_next($hash, $papa);
+            }
+        }
+    }
+}
+
+sub calc_backward
+{
+    foreach (@_)
+    {
+        my @parts = split / /, $_;
+        my $hash = shift @parts;
+        my $msg = join(' ', @parts);
+        chomp $msg;
+        my $me = \$commits{$hash};
+        if ($$me->{type} eq 'merge' and defined $$me->{branch}) {
+            # determine parents branch
+            my $papahash = $$me->{parents}[0];
+            my $mamahash = $$me->{parents}[1];
+            if (exists $commits{$papahash} and exists $commits{$mamahash}) {
+                my $papa = \$commits{$papahash};
+                my $mama = \$commits{$mamahash};
+                if (defined $$papa->{branch} and $$me->{branch} eq $$papa->{branch}) {
+                    $$mama->{branch} = $$me->{merge}{from} if (!defined $$mama->{branch});
+                } elsif (defined $$mama->{branch} and $$me->{branch} eq $$mama->{branch}) {
+                    $$papa->{branch} = $$me->{merge}{from} if (!defined $$papa->{branch});
+                } elsif ($$me->{merge}{from} eq $$me->{merge}{to}) {
+                    $$mama->{branch} = $$me->{merge}{from} if (!defined $$mama->{branch});
+                    $$papa->{branch} = $$me->{merge}{from} if (!defined $$papa->{branch});
+                }
+            }
+        } elsif ($$me->{type} eq 'commit') {
+            my $papahash = $$me->{parents}[0];
+            if (exists $commits{$papahash}) {
+                my $papa = \$commits{$papahash};
+                if ($$papa->{type} eq 'commit') {
+                    if (scalar(@{$$papa->{next}}) == 1 and defined $$me->{branch}) {
+                        $$papa->{branch} = $$me->{branch} if (!defined $$papa->{branch});
+                    } elsif (scalar(@{$$papa->{next}}) == 2) {
+                        if (defined $commits{$$papa->{next}[0]}{branch}
+                                and defined $commits{$$papa->{next}[1]}{branch}
+                                and $commits{$$papa->{next}[0]}{branch} eq $commits{$$papa->{next}[1]}{branch})
+                        {
+                            $$papa->{branch} = $$me->{branch} if (!defined $$papa->{branch});
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+sub calc_forward
+{
+    foreach (reverse @_)
+    {
+        my @parts = split / /, $_;
+        my $hash = shift @parts;
+        my $me = \$commits{$hash};
+        if (defined $$me->{next} and defined $$me->{branch}) {
+            if (scalar(@{$$me->{next}}) == 2) {
+                my $son = \$commits{$$me->{next}[0]};
+                my $daughter = \$commits{$$me->{next}[1]};
+                if (defined $$son->{branch} and $$son->{branch} eq $$me->{branch} and $$son->{type} eq 'merge') {
+                    $$daughter->{branch} = $$son->{merge}{from} if not defined $$daughter->{branch};
+                } elsif (defined $$daughter->{branch} and $$daughter->{branch} eq $$me->{branch} and $$daughter->{type} eq 'merge') {
+                    $$son->{branch} = $$daughter->{merge}{from} if not defined $$son->{branch};
+                }
+            } elsif (scalar(@{$$me->{next}}) == 1) {
+                my $son = \$commits{$$me->{next}[0]};
+                $$son->{branch} = $$me->{branch} if not defined $$son->{branch};
+            }
+        }
+    }
+}
+
+
+### main
+
+# get all local branches
+my @git_branch_lines=`git branch --no-color 2> /dev/null | cut -c 3-`;
+my @git_branch_current=`git branch --no-color 2> /dev/null | sed -e "/^[^*]/d" | cut -c 3-`;
+
+# parse_branch_hash
+foreach (@git_branch_lines)
+{
+    chomp $_;
+    my $hash = `git rev-parse $_`;
+    chomp $hash;
+    $git_branch_hashes{shorten($hash)} = $_;
+}
+
+# parse all commits
+foreach (`$GIT_CMD_REV_LIST`)
+{
+    chomp $_;
+    my @hashes = split / /, $_;
+    my %node = get_node(@hashes);
+    $commits{$node{me}} = {%node};
+}
+
+# construct branches backward
+my @branches = ();
+my @unmatched = ();
+my @lines = `$GIT_LOG`;
+
+construct_tree_backward(@lines);
+calc_backward(@lines);
+calc_forward(@lines);
+calc_backward(@lines);
+
+# decoreate git graph
+foreach (`$GIT_LOG_GRAPH`)
+{
+    my $color = $_;
+    my $uncolor = $color;
+    $uncolor =~ s/\e\[(\d+(;\d+)?)?m//g;
+
+    if ($uncolor =~ /\* / and $uncolor =~ / [0-9a-f]{7} / ) {
+        my ($hash) = $uncolor =~ m/ ([0-9a-f]{7}) /;
+        my $branch = "";
+        if (defined $commits{$hash}{branch}) {
+           $branch = $commits{$hash}{branch};
+        }
+
+        printf('%15s %s', substr($branch, 0, 15), $color);
+    } else {
+        printf('%15s %s', ' ', $color);
+    }
+}
+
