@@ -197,7 +197,7 @@ sub calc_forward
 ### main
 
 # get all local branches
-my @git_branch_lines=`git branch --no-color 2> /dev/null | cut -c 3-`;
+my @git_branch_lines=`git branch --no-color 2> /dev/null | grep -v "HEAD detached at"| cut -c 3-`;
 my @git_branch_current=`git branch --no-color 2> /dev/null | sed -e "/^[^*]/d" | cut -c 3-`;
 
 # parse_branch_hash
