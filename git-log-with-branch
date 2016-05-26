@@ -16,10 +16,10 @@ my $GIT_CMD_REV_LIST = "git rev-list --parents HEAD | head -$num";
 my $GIT_LOG = "git log --oneline --date-order -$num";
 my $GIT_LOG_GRAPH = "$GIT_LOG --color=always --graph";
 
-my $GIT_MERGE_MASTER_MSG = qr/^Merge branch '(${\(BRANCH_PATTERN)})'$/;
-my $GIT_MERGE_REMOTE_MASTER_MSG = qr/^Merge branch '(${\(BRANCH_PATTERN)})' of ${\(REPOS_PATTERN)}$/;
-my $GIT_MERGE_BRANCH_MSG = qr/^Merge branch '(${\(BRANCH_PATTERN)})' into (${\(BRANCH_PATTERN)})$/;
-my $GIT_MERGE_REMOTE_BRANCH_MSG = qr/^Merge branch '(${\(BRANCH_PATTERN)})' of ${\(REPOS_PATTERN)} into (${\(BRANCH_PATTERN)})$/;
+my $GIT_MERGE_MASTER_MSG = qr/^Merge branch '(?<from>${\(BRANCH_PATTERN)})'$/;
+my $GIT_MERGE_REMOTE_MASTER_MSG = qr/^Merge branch '(?<from>${\(BRANCH_PATTERN)})' of ${\(REPOS_PATTERN)}$/;
+my $GIT_MERGE_BRANCH_MSG = qr/^Merge branch '(?<from>${\(BRANCH_PATTERN)})' into '?(?<to>${\(BRANCH_PATTERN)})'?$/;
+my $GIT_MERGE_REMOTE_BRANCH_MSG = qr/^Merge branch '(?<from>${\(BRANCH_PATTERN)})' of ${\(REPOS_PATTERN)} into '?(?<to>${\(BRANCH_PATTERN)})'?$/;
 
 # globals
 my %git_branch_hashes;
@@ -66,15 +66,15 @@ sub get_node
         if ($commit_msg =~ $GIT_MERGE_MASTER_MSG
                 or $commit_msg =~ $GIT_MERGE_REMOTE_MASTER_MSG)
         {
-            $node{merge}{from} = $1;
+            $node{merge}{from} = $+{from};
             $node{merge}{to} = 'master';
             $node{branch} = 'master' if (!defined $node{branch});
         } elsif ($commit_msg =~ $GIT_MERGE_BRANCH_MSG
                 or $commit_msg =~ $GIT_MERGE_REMOTE_BRANCH_MSG)
         {
-            $node{merge}{from} = $1;
-            $node{merge}{to} = $2;
-            $node{branch} = $2 if not defined $node{branch};
+            $node{merge}{from} = $+{from};
+            $node{merge}{to} = $+{to};
+            $node{branch} = $+{to} if not defined $node{branch};
         }
     } elsif (scalar(@hashes) == 2) { # normal commit
         $node{type} = 'commit';
