@@ -86,6 +86,7 @@ sub get_node
         $node{parents} = [(shorten($hashes[1]))];
     } elsif (scalar(@hashes) == 1) { # initial commit
         $node{type} = 'initial';
+        $node{branch} = 'master' if (!defined $node{branch});
     }
 
     return %node;
